@@ -877,9 +877,8 @@ class DealFormatter:
             line_components.append(brand)
         
         # Gender
-        gender = product_info.get('gender', '').strip()
-        if gender:
-            line_components.append(gender)
+gender = product_info.get('gender', '').strip()
+line_components.append(gender)
         
         # Quantity
         quantity = product_info.get('quantity', '').strip()
