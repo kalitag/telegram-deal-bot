@@ -846,18 +846,6 @@ async def process_all_items(items):
         result = await process_item(item)
         results.append(result)
     return results
-
-        
-        # Limit length smartly
-        if len(clean_title) > 60:
-            clean_title = clean_title[:60]
-            if ' ' in clean_title:
-                clean_title = clean_title.rsplit(' ', 1)[0] + '...'
-        
-        return clean_title.strip()
-
-class DealFormatter:
-    """Format deals according to specifications"""
     
     @staticmethod
     def format_deal(product_info: Dict[str, Any], clean_url: str, platform: str = '') -> str:
