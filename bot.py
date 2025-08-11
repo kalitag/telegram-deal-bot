@@ -699,46 +699,10 @@ class ProductScraper:
         if not title:
             return ''
         
-        # Remove platform-specific noise
-        noise_patterns = [
-            r'\s*-\s*Amazon\.in.*$',
-            r'\s*:\s*Amazon\.in.*$',
-            r'\s*\|\s*Flipkart\.com.*$',
-            r'\s*-\s*Buy.*$',
-            r'\s*\|\s*Buy.*$',
-            r'Buy\s+.*?online.*?at.*?price.*?$',
-            r'Shop\s+.*?online.*?$',
-            r'\s*\|\s*Myntra.*$',
-            r'\s*-\s*Meesho.*$',
-            r'\s*\|\s*.*\.com.*$',
-            r'\s*-\s*.*\.in.*$',
-            r'MRP.*?₹.*?\d+',
-            r'Price.*?₹.*?\d+',
-            r'₹\d+.*?off',
-            r'\d+%.*?off',
-            r'discount.*?\d+',
-            r'save.*?₹.*?\d+'
-        ]
-        
-        clean_title = title
-        for pattern in noise_patterns:
-            clean_title = re.sub(pattern, '', clean_title, flags=re.IGNORECASE)
-        
-        # Remove extra whitespace and clean up
-        clean_title = ' '.join(clean_title.split())
-        
-        # Remove promotional and price words
-        promo_words = [
-            'offer', 'deal', 'sale', 'discount', 'exclusive', 'limited', 'special',
-            'mrp', 'price', 'rs', 'rupees', 'off', 'save', 'best', 'lowest',
-            'original', 'authentic', 'genuine', 'brand', 'new', 'latest'
-        ]
-        words = clean_title.split()
-        filtered_words = []
-        
-        for word in words:
-            # ✅ Add this line to define the promotional words you want to skip.
-promo_words = {"deal", "offer", "sale", "special", "discount", "free", "limited", "new"}
+     import re
+import requests
+from PIL import Image
+import pytesseract
 
 # ===== Helper Functions =====
 def clean_title(raw_title: str) -> str:
@@ -746,20 +710,56 @@ def clean_title(raw_title: str) -> str:
     Cleans product titles by removing platform-specific noise, promo words, repeated words,
     and unnecessary symbols. Ensures brand and essential details remain.
     """
-    noise_words = {
-        "deal", "offer", "sale", "special", "discount", "free", "limited", "new",
-        "buy", "shop", "trending", "exclusive", "best price", "hot"
+    noise_patterns = [
+        r'\s*-\s*Amazon\.in.*$',
+        r'\s*:\s*Amazon\.in.*$',
+        r'\s*\|\s*Flipkart\.com.*$',
+        r'\s*-\s*Buy.*$',
+        r'\s*\|\s*Buy.*$',
+        r'Buy\s+.*?online.*?at.*?price.*?$',
+        r'Shop\s+.*?online.*?$',
+        r'\s*\|\s*Myntra.*$',
+        r'\s*-\s*Meesho.*$',
+        r'\s*\|\s*.*\.com.*$',
+        r'\s*-\s*.*\.in.*$',
+        r'MRP.*?₹.*?\d+',
+        r'Price.*?₹.*?\d+',
+        r'₹\d+.*?off',
+        r'\d+%.*?off',
+        r'discount.*?\d+',
+        r'save.*?₹.*?\d+'
+    ]
+    
+    clean = raw_title
+    for pattern in noise_patterns:
+        clean = re.sub(pattern, '', clean, flags=re.IGNORECASE)
+
+    # Remove extra whitespace
+    clean = ' '.join(clean.split())
+
+    promo_words = {
+        "deal", "offer", "sale", "special", "discount", "free",
+        "limited", "new", "buy", "shop", "trending", "exclusive",
+        "best", "lowest", "original", "authentic", "genuine", "brand", "hot"
     }
-    # Lowercase comparison for cleaning but keep original case for display
-    title_words = raw_title.split()
-    cleaned_words = []
-    for word in title_words:
-        if word.lower() not in noise_words and not re.match(r'^\W+$', word):
-            cleaned_words.append(word)
+
+    words = clean.split()
+    filtered_words = [w for w in words if w.lower() not in promo_words and not re.match(r'^\W+$', w)]
+
     # Remove duplicates while preserving order
     seen = set()
-    final_words = [w for w in cleaned_words if not (w.lower() in seen or seen.add(w.lower()))]
-    return " ".join(final_words).strip()
+    final_words = [w for w in filtered_words if not (w.lower() in seen or seen.add(w.lower()))]
+
+    clean_title_str = " ".join(final_words).strip()
+
+    # Limit length smartly
+    if len(clean_title_str) > 60:
+        clean_title_str = clean_title_str[:60]
+        if ' ' in clean_title_str:
+            clean_title_str = clean_title_str.rsplit(' ', 1)[0] + '...'
+
+    return clean_title_str
+
 
 def extract_price(text: str) -> str:
     """
@@ -770,6 +770,7 @@ def extract_price(text: str) -> str:
         prices = sorted(set(int(p) for p in matches))
         return f"₹{prices[0]}" if prices else ""
     return ""
+
 
 def detect_brand_gender_qty(title: str) -> dict:
     """
@@ -789,6 +790,7 @@ def detect_brand_gender_qty(title: str) -> dict:
         "quantity": qty_match.group(0) if qty_match else ""
     }
 
+
 def unshorten_url(url: str) -> str:
     """
     Expands shortened URLs to their final destination.
@@ -798,6 +800,7 @@ def unshorten_url(url: str) -> str:
         return r.url
     except requests.RequestException:
         return url
+
 
 def extract_text_from_image(image_path: str) -> str:
     """
@@ -809,10 +812,9 @@ def extract_text_from_image(image_path: str) -> str:
     except Exception:
         return ""
 
+
 # ===== Processing Items =====
 async def process_item(item):
-    promo_words = {"deal", "offer", "sale", "special", "discount", "free", "limited", "new"}
-
     title = clean_title(item.get("title", ""))
     price = extract_price(item.get("price_info", ""))
     meta = detect_brand_gender_qty(title)
@@ -833,14 +835,13 @@ async def process_item(item):
         "url": unshorten_url(item.get("url", ""))
     }
 
-# ===== Example Usage =====
-# Assuming 'items' is a list of dictionaries with keys: title, price_info, url, size, pin
 async def process_all_items(items):
     results = []
     for item in items:
         result = await process_item(item)
         results.append(result)
     return results
+
         
         # Limit length smartly
         if len(clean_title) > 60:
