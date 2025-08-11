@@ -868,11 +868,6 @@ async def process_all_items(items):
 gender = product_info.get('gender', '').strip()
 line_components.append(gender)
         
-        # Quantity
-        quantity = product_info.get('quantity', '').strip()
-        if quantity:
-            line_components.append(quantity)
-        
         # Title (cleaned)
         if title:
             # Remove brand from title if already added
