@@ -756,16 +756,24 @@ class ProductScraper:
         for pattern in noise_patterns:
             clean_title = re.sub(pattern, '', clean_title, flags=re.IGNORECASE)
         
-        # Remove extra whitespace
+        # Remove extra whitespace and clean up
         clean_title = ' '.join(clean_title.split())
         
-        # Remove common promotional words at the end
-        promo_words = ['offer', 'deal', 'sale', 'discount', 'exclusive', 'limited', 'special']
+        # Remove common promotional and price words
+        promo_words = [
+            'offer', 'deal', 'sale', 'discount', 'exclusive', 'limited', 'special',
+            'mrp', 'price', 'rs', 'rupees', 'off', 'save', 'best', 'lowest',
+            'original', 'authentic', 'genuine', 'brand', 'new', 'latest'
+        ]
         words = clean_title.split()
         filtered_words = []
         
         for word in words:
-            if word.lower() not in promo_words:
+            # Skip promotional words and price-related terms
+            if (word.lower() not in promo_words and 
+                not re.match(r'₹\d+', word) and 
+                not re.match(r'\d+%', word) and
+                not re.match(r'rs\.?\d+', word, re.IGNORECASE)):
                 filtered_words.append(word)
         
         clean_title = ' '.join(filtered_words)
