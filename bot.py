@@ -852,7 +852,7 @@ async def process_all_items(items):
         """Format product info into deal structure"""
         
         if not platform:
-            platform = ProductScraper.detect_platform(clean_url)
+        platform = ProductScraper.detect_platform(clean_url)
         
         # Build first line components
         line_components = []
@@ -862,46 +862,46 @@ async def process_all_items(items):
         title = product_info.get('title', '').strip()
         
         if brand and brand.lower() not in title.lower():
-            line_components.append(brand)
+        line_components.append(brand)
         
         # Gender
-gender = product_info.get('gender', '').strip()
-line_components.append(gender)
+        gender = product_info.get('gender', '').strip()
+        line_components.append(gender)
         
         # Title (cleaned)
         if title:
-            # Remove brand from title if already added
-            if brand and brand.lower() in title.lower():
-                title_words = title.split()
-                filtered_words = []
-                brand_words = brand.lower().split()
+        # Remove brand from title if already added
+        if brand and brand.lower() in title.lower():
+        title_words = title.split()
+        filtered_words = []
+        brand_words = brand.lower().split()
                 
-                i = 0
-                while i < len(title_words):
-                    word = title_words[i].lower()
-                    if word in [b.lower() for b in brand_words]:
-                        # Skip brand words
-                        brand_match = True
-                        for j, brand_word in enumerate(brand_words):
-                            if i + j >= len(title_words) or title_words[i + j].lower() != brand_word.lower():
-                                brand_match = False
-                                break
-                        if brand_match:
-                            i += len(brand_words)
-                            continue
-                    filtered_words.append(title_words[i])
-                    i += 1
+        i = 0
+        while i < len(title_words):
+        word = title_words[i].lower()
+        if word in [b.lower() for b in brand_words]:
+        # Skip brand words
+        brand_match = True
+        for j, brand_word in enumerate(brand_words):
+        if i + j >= len(title_words) or title_words[i + j].lower() != brand_word.lower():
+        brand_match = False
+        break
+        if brand_match:
+        i += len(brand_words)
+        continue
+        filtered_words.append(title_words[i])
+        i += 1
                 
-                title = ' '.join(filtered_words).strip()
+        title = ' '.join(filtered_words).strip()
             
-            line_components.append(title)
+        line_components.append(title)
         else:
-            line_components.append('Product Deal')
+        line_components.append('Product Deal')
         
         # Price
         price = product_info.get('price', '').strip()
         if price:
-            line_components.append(f"@{price} rs")
+        line_components.append(f"@{price} rs")
         
         # Build message
         lines = []
@@ -918,30 +918,30 @@ line_components.append(gender)
         
         # Meesho-specific info
         if platform == 'meesho' or 'meesho' in clean_url.lower():
-            # Size info
-            sizes = product_info.get('sizes', [])
-            if sizes:
-                if len(sizes) >= 5:
-                    lines.append('Size - All')
-                else:
-                    lines.append(f"Size - {', '.join(sizes)}")
-            else:
-                lines.append('Size - All')
+        # Size info
+        sizes = product_info.get('sizes', [])
+        if sizes:
+        if len(sizes) >= 5:
+        lines.append('Size - All')
+        else:
+        lines.append(f"Size - {', '.join(sizes)}")
+        else:
+        lines.append('Size - All')
             
-            # PIN info
-            pin = product_info.get('pin', '110001')
-            lines.append(f"Pin - {pin}")
+        # PIN info
+        pin = product_info.get('pin', '110001')
+        lines.append(f"Pin - {pin}")
             
-            # Empty line
-            lines.append('')
+        # Empty line
+        lines.append('')
         
         # Channel tag
         lines.append('@reviewcheckk')
         
         return '\n'.join(lines)
 
-class DealBot:
-    """Main bot class"""
+        class DealBot:
+        """Main bot class"""
     
     def __init__(self):
         self.session = None
