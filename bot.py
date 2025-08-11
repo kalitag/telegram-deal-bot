@@ -824,11 +824,6 @@ async def process_item(item):
         "meta": meta
     }
 
-
-# ===== Imports for later processing =====
-import re
-
-
     # Meesho-specific additions
     if "meesho.com" in item.get("url", "").lower():
         if "size" in item:
