@@ -698,8 +698,7 @@ class ProductScraper:
         """Clean title text"""
         if not title:
             return ''
-        
-     import re
+
 import requests
 from PIL import Image
 import pytesseract
