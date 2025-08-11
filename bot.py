@@ -737,14 +737,23 @@ class ProductScraper:
         filtered_words = []
         
         for word in words:
-            # Skip promotional words and price-related terms
-            if (word.lower() not in promo_words and 
-                not re.match(r'₹\d+', word) and 
-                not re.match(r'\d+%', word) and
-                not re.match(r'rs\.?\d+', word, re.IGNORECASE)):
-                filtered_words.append(word)
+            # ✅ Add this line to define the promotional words you want to skip.
+promo_words = {"deal", "offer", "sale", "special", "discount", "free", "limited", "new"}
+
+title = "🔥 Special deal: Get 50% OFF! Was ₹2000, now ₹1000. Limited time offer!"
+words = title.split()
+filtered_words = []
+
+for word in words:
+    # Skip promotional words and price-related terms
+    if (word.lower() not in promo_words and
+            not re.match(r'₹\d+', word) and
+            not re.match(r'\d+%', word) and
+            not re.match(r'rs\.?\d+', word, re.IGNORECASE)):
+        filtered_words.append(word)
         
-        clean_title = ' '.join(filtered_words)
+clean_title = ' '.join(filtered_words)
+print(clean_title)
         
         # Limit length smartly
         if len(clean_title) > 60:
