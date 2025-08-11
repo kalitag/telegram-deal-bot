@@ -818,6 +818,17 @@ async def process_item(item):
     title = clean_title(item.get("title", ""))
     price = extract_price(item.get("price_info", ""))
     meta = detect_brand_gender_qty(title)
+    # You might want to return or process further
+    return {
+        "title": title,
+        "price": price,
+        "meta": meta
+    }
+
+
+# ===== Imports for later processing =====
+import re
+
 
     # Meesho-specific additions
     if "meesho.com" in item.get("url", "").lower():
