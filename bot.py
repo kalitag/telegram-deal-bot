@@ -698,161 +698,66 @@ class ProductScraper:
         """Clean title text"""
         if not title:
             return ''
+        
+        noise_patterns = [
+            r'\s*-\s*Amazon\.in.*$',
+            r'\s*:\s*Amazon\.in.*$',
+            r'\s*\|\s*Flipkart\.com.*$',
+            r'\s*-\s*Buy.*$',
+            r'\s*\|\s*Buy.*$',
+            r'Buy\s+.*?online.*?at.*?price.*?$',
+            r'Shop\s+.*?online.*?$',
+            r'\s*\|\s*Myntra.*$',
+            r'\s*-\s*Meesho.*$',
+            r'\s*\|\s*.*\.com.*$',
+            r'\s*-\s*.*\.in.*$',
+            r'MRP.*?₹.*?\d+',
+            r'Price.*?₹.*?\d+',
+            r'₹\d+.*?off',
+            r'\d+%.*?off',
+            r'discount.*?\d+',
+            r'save.*?₹.*?\d+'
+        ]
+        
+        clean = title
+        for pattern in noise_patterns:
+            clean = re.sub(pattern, '', clean, flags=re.IGNORECASE)
 
-import requests
-from PIL import Image
-import pytesseract
+        # Remove extra whitespace
+        clean = ' '.join(clean.split())
 
-# ===== Helper Functions =====
-def clean_title(raw_title: str) -> str:
-    """
-    Cleans product titles by removing platform-specific noise, promo words, repeated words,
-    and unnecessary symbols. Ensures brand and essential details remain.
-    """
-    noise_patterns = [
-        r'\s*-\s*Amazon\.in.*$',
-        r'\s*:\s*Amazon\.in.*$',
-        r'\s*\|\s*Flipkart\.com.*$',
-        r'\s*-\s*Buy.*$',
-        r'\s*\|\s*Buy.*$',
-        r'Buy\s+.*?online.*?at.*?price.*?$',
-        r'Shop\s+.*?online.*?$',
-        r'\s*\|\s*Myntra.*$',
-        r'\s*-\s*Meesho.*$',
-        r'\s*\|\s*.*\.com.*$',
-        r'\s*-\s*.*\.in.*$',
-        r'MRP.*?₹.*?\d+',
-        r'Price.*?₹.*?\d+',
-        r'₹\d+.*?off',
-        r'\d+%.*?off',
-        r'discount.*?\d+',
-        r'save.*?₹.*?\d+'
-    ]
-    
-    clean = raw_title
-    for pattern in noise_patterns:
-        clean = re.sub(pattern, '', clean, flags=re.IGNORECASE)
+        promo_words = {
+            "deal", "offer", "sale", "special", "discount", "free",
+            "limited", "new", "buy", "shop", "trending", "exclusive",
+            "best", "lowest", "original", "authentic", "genuine", "brand", "hot"
+        }
 
-    # Remove extra whitespace
-    clean = ' '.join(clean.split())
+        words = clean.split()
+        filtered_words = [w for w in words if w.lower() not in promo_words and not re.match(r'^\W+$', w)]
 
-    promo_words = {
-        "deal", "offer", "sale", "special", "discount", "free",
-        "limited", "new", "buy", "shop", "trending", "exclusive",
-        "best", "lowest", "original", "authentic", "genuine", "brand", "hot"
-    }
+        # Remove duplicates while preserving order
+        seen = set()
+        final_words = [w for w in filtered_words if not (w.lower() in seen or seen.add(w.lower()))]
 
-    words = clean.split()
-    filtered_words = [w for w in words if w.lower() not in promo_words and not re.match(r'^\W+$', w)]
+        clean_title_str = " ".join(final_words).strip()
 
-    # Remove duplicates while preserving order
-    seen = set()
-    final_words = [w for w in filtered_words if not (w.lower() in seen or seen.add(w.lower()))]
+        # Limit length smartly
+        if len(clean_title_str) > 60:
+            clean_title_str = clean_title_str[:60]
+            if ' ' in clean_title_str:
+                clean_title_str = clean_title_str.rsplit(' ', 1)[0] + '...'
 
-    clean_title_str = " ".join(final_words).strip()
+        return clean_title_str
 
-    # Limit length smartly
-    if len(clean_title_str) > 60:
-        clean_title_str = clean_title_str[:60]
-        if ' ' in clean_title_str:
-            clean_title_str = clean_title_str.rsplit(' ', 1)[0] + '...'
+class DealFormatter:
+    """Formats product information into a deal structure."""
 
-    return clean_title_str
-
-
-def extract_price(text: str) -> str:
-    """
-    Extracts the actual selling price from a string, ignoring MRP/discount info.
-    """
-    matches = re.findall(r'₹\s?(\d+)', text)
-    if matches:
-        prices = sorted(set(int(p) for p in matches))
-        return f"₹{prices[0]}" if prices else ""
-    return ""
-
-
-def detect_brand_gender_qty(title: str) -> dict:
-    """
-    Detects brand, gender, and quantity from product title.
-    """
-    brand_match = re.search(r'by\s+([A-Za-z0-9]+)', title, re.IGNORECASE)
-    gender = "Unisex"
-    if re.search(r'\bmen\b', title, re.IGNORECASE):
-        gender = "Men"
-    elif re.search(r'\bwomen\b', title, re.IGNORECASE):
-        gender = "Women"
-
-    qty_match = re.search(r'(\d+)\s?(pcs|pieces|pack)', title, re.IGNORECASE)
-    return {
-        "brand": brand_match.group(1) if brand_match else "",
-        "gender": gender,
-        "quantity": qty_match.group(0) if qty_match else ""
-    }
-
-
-def unshorten_url(url: str) -> str:
-    """
-    Expands shortened URLs to their final destination.
-    """
-    try:
-        r = requests.head(url, allow_redirects=True, timeout=5)
-        return r.url
-    except requests.RequestException:
-        return url
-
-
-def extract_text_from_image(image_path: str) -> str:
-    """
-    Uses OCR to extract text from an image.
-    """
-    try:
-        img = Image.open(image_path)
-        return pytesseract.image_to_string(img)
-    except Exception:
-        return ""
-
-
-# ===== Processing Items =====
-async def process_item(item):
-    title = clean_title(item.get("title", ""))
-    price = extract_price(item.get("price_info", ""))
-    meta = detect_brand_gender_qty(title)
-    # You might want to return or process further
-    return {
-        "title": title,
-        "price": price,
-        "meta": meta
-    }
-
-    # Meesho-specific additions
-    if "meesho.com" in item.get("url", "").lower():
-        if "size" in item:
-            title += f" | Size: {item['size']}"
-        if "pin" in item:
-            title += f" | PIN: {item['pin']}"
-
-    return {
-        "title": title,
-        "price": price,
-        "brand": meta["brand"],
-        "gender": meta["gender"],
-        "quantity": meta["quantity"],
-        "url": unshorten_url(item.get("url", ""))
-    }
-
-async def process_all_items(items):
-    results = []
-    for item in items:
-        result = await process_item(item)
-        results.append(result)
-    return results
-    
     @staticmethod
     def format_deal(product_info: Dict[str, Any], clean_url: str, platform: str = '') -> str:
         """Format product info into deal structure"""
         
         if not platform:
-        platform = ProductScraper.detect_platform(clean_url)
+            platform = ProductScraper.detect_platform(clean_url)
         
         # Build first line components
         line_components = []
@@ -862,46 +767,46 @@ async def process_all_items(items):
         title = product_info.get('title', '').strip()
         
         if brand and brand.lower() not in title.lower():
-        line_components.append(brand)
+            line_components.append(brand)
         
         # Gender
         gender = product_info.get('gender', '').strip()
-        line_components.append(gender)
+        if gender: # Only append if gender is found
+            line_components.append(gender)
         
         # Title (cleaned)
         if title:
-        # Remove brand from title if already added
-        if brand and brand.lower() in title.lower():
-        title_words = title.split()
-        filtered_words = []
-        brand_words = brand.lower().split()
-                
-        i = 0
-        while i < len(title_words):
-        word = title_words[i].lower()
-        if word in [b.lower() for b in brand_words]:
-        # Skip brand words
-        brand_match = True
-        for j, brand_word in enumerate(brand_words):
-        if i + j >= len(title_words) or title_words[i + j].lower() != brand_word.lower():
-        brand_match = False
-        break
-        if brand_match:
-        i += len(brand_words)
-        continue
-        filtered_words.append(title_words[i])
-        i += 1
-                
-        title = ' '.join(filtered_words).strip()
+            # Remove brand from title if already added
+            if brand and brand.lower() in title.lower():
+                title_words = title.split()
+                filtered_words = []
+                brand_words = brand.lower().split()
+                        
+                i = 0
+                while i < len(title_words):
+                    word = title_words[i].lower()
+                    # Check if current sequence of words matches the brand
+                    brand_match = True
+                    for j, brand_word in enumerate(brand_words):
+                        if i + j >= len(title_words) or title_words[i + j].lower() != brand_word.lower():
+                            brand_match = False
+                            break
+                    if brand_match:
+                        i += len(brand_words) # Skip brand words
+                        continue
+                    filtered_words.append(title_words[i])
+                    i += 1
+                            
+                title = ' '.join(filtered_words).strip()
             
-        line_components.append(title)
+            line_components.append(title)
         else:
-        line_components.append('Product Deal')
+            line_components.append('Product Deal')
         
         # Price
         price = product_info.get('price', '').strip()
         if price:
-        line_components.append(f"@{price} rs")
+            line_components.append(f"@{price} rs")
         
         # Build message
         lines = []
@@ -918,30 +823,30 @@ async def process_all_items(items):
         
         # Meesho-specific info
         if platform == 'meesho' or 'meesho' in clean_url.lower():
-        # Size info
-        sizes = product_info.get('sizes', [])
-        if sizes:
-        if len(sizes) >= 5:
-        lines.append('Size - All')
-        else:
-        lines.append(f"Size - {', '.join(sizes)}")
-        else:
-        lines.append('Size - All')
+            # Size info
+            sizes = product_info.get('sizes', [])
+            if sizes:
+                if len(sizes) >= 5:
+                    lines.append('Size - All')
+                else:
+                    lines.append(f"Size - {', '.join(sizes)}")
+            else:
+                lines.append('Size - All')
             
-        # PIN info
-        pin = product_info.get('pin', '110001')
-        lines.append(f"Pin - {pin}")
+            # PIN info
+            pin = product_info.get('pin', '110001')
+            lines.append(f"Pin - {pin}")
             
-        # Empty line
-        lines.append('')
+            # Empty line
+            lines.append('')
         
         # Channel tag
         lines.append('@reviewcheckk')
         
         return '\n'.join(lines)
 
-        class DealBot:
-        """Main bot class"""
+class DealBot:
+    """Main bot class"""
     
     def __init__(self):
         self.session = None
