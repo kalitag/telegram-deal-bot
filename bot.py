@@ -8,7 +8,6 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 from telegram.constants import ParseMode
-import json
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8465346144:AAGSHC77UkXVZZTUscbYItvJxgQbBxmFcWo"
 BOT_USERNAME = "@tg_workbot"
 
-# Enhanced URL shorteners list
+# URL shorteners list
 SHORTENERS = [
     'cutt.ly', 'spoo.me', 'amzn.to', 'amzn-to.co', 'fkrt.cc', 'bitli.in', 
     'da.gd', 'wishlink.com', 'bit.ly', 'tinyurl.com', 'short.link', 
@@ -30,7 +29,7 @@ SHORTENERS = [
     'tinycc.com', 'shorturl.at', 'clck.ru', '0rz.tw', '1link.in'
 ]
 
-# Enhanced gender detection with exact patterns
+# Gender detection patterns
 GENDER_KEYWORDS = {
     'Men': [
         r'\bmen\b', r"\bmen's\b", r'\bmale\b', r'\bboy\b', r'\bboys\b', 
@@ -48,7 +47,7 @@ GENDER_KEYWORDS = {
     ]
 }
 
-# Enhanced quantity patterns with better regex
+# Quantity patterns
 QUANTITY_PATTERNS = [
     r'pack\s+of\s+(\d+)',
     r'(\d+)\s*pack',
@@ -65,7 +64,7 @@ QUANTITY_PATTERNS = [
     r'quantity\s*:\s*(\d+)'
 ]
 
-# Enhanced brand list
+# Known brands
 KNOWN_BRANDS = [
     'Lakme', 'Maybelline', 'L\'Oreal', 'MAC', 'Revlon', 'Nykaa', 'Colorbar',
     'Nike', 'Adidas', 'Puma', 'Reebok', 'Converse', 'Vans',
@@ -76,21 +75,21 @@ KNOWN_BRANDS = [
 ]
 
 class SmartLinkProcessor:
-    """Ultra-smart link detection and processing"""
+    """Smart link detection and processing"""
     
     @staticmethod
     def extract_all_links(text: str) -> List[str]:
-        """Extract ALL possible URLs from text with enhanced detection"""
+        """Extract all URLs from text"""
         if not text:
             return []
         
         urls = []
         
-        # Pattern 1: Standard HTTP/HTTPS URLs (more robust)
+        # Standard HTTP/HTTPS URLs
         standard_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+(?=[.\s]|$)'
         urls.extend(re.findall(standard_pattern, text, re.IGNORECASE))
         
-        # Pattern 2: URLs without protocol but with www
+        # URLs with www
         www_pattern = r'www\.[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s<>"{}|\\^`\[\]]*)?'
         potential_urls = re.findall(www_pattern, text)
         for url in potential_urls:
@@ -98,14 +97,14 @@ class SmartLinkProcessor:
                 url = 'https://' + url
             urls.append(url)
         
-        # Pattern 3: Domain-only URLs for major platforms
+        # Platform-specific domains
         domain_patterns = [
             r'(?:amazon\.in|amazon\.com)/[^\s<>"{}|\\^`\[\]]+',
             r'(?:flipkart\.com)/[^\s<>"{}|\\^`\[\]]+',
             r'(?:meesho\.com)/[^\s<>"{}|\\^`\[\]]+',
             r'(?:myntra\.com)/[^\s<>"{}|\\^`\[\]]+',
             r'(?:ajio\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:snapdeal\.com)/[^\s<>"{}|\\^`\[\]]+',
+            r'(?:snapdeal\.com)/[^\s<>"{}|\\^`\[\]]+'
         ]
         
         for pattern in domain_patterns:
@@ -115,7 +114,7 @@ class SmartLinkProcessor:
                     url = 'https://' + url
                 urls.append(url)
         
-        # Pattern 4: Shortened URLs with better detection
+        # Shortened URLs
         short_pattern = r'(?:https?://)?(?:' + '|'.join(re.escape(s) for s in SHORTENERS) + r')/[^\s<>"{}|\\^`\[\]]+'
         shortened_urls = re.findall(short_pattern, text, re.IGNORECASE)
         
@@ -124,25 +123,22 @@ class SmartLinkProcessor:
                 url = 'https://' + url
             urls.append(url)
         
-        # Clean and deduplicate URLs
+        # Clean URLs
         cleaned_urls = []
         seen = set()
         
         for url in urls:
-            # Remove trailing punctuation more aggressively
             url = re.sub(r'[.,;:!?\)\]]+$', '', url)
-            
-            # Remove duplicates and validate
             if url and url not in seen and len(url) > 10 and '.' in url:
                 cleaned_urls.append(url)
                 seen.add(url)
         
-        logger.info(f"Extracted {len(cleaned_urls)} unique URLs: {cleaned_urls}")
+        logger.info(f"Extracted {len(cleaned_urls)} unique URLs")
         return cleaned_urls
     
     @staticmethod
     def is_shortened_url(url: str) -> bool:
-        """Enhanced shortener detection"""
+        """Check if URL is shortened"""
         try:
             domain = urlparse(url).netloc.lower()
             return any(shortener in domain for shortener in SHORTENERS)
@@ -151,7 +147,7 @@ class SmartLinkProcessor:
     
     @staticmethod
     async def unshorten_url_aggressive(url: str, session: aiohttp.ClientSession) -> str:
-        """Aggressive URL unshortening with enhanced error handling"""
+        """Unshorten URL aggressively"""
         max_attempts = 3
         current_url = url
         
@@ -159,19 +155,11 @@ class SmartLinkProcessor:
             try:
                 logger.info(f"Unshortening attempt {attempt + 1}: {current_url}")
                 
-                # Enhanced headers to avoid blocking
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Cache-Control': 'max-age=0'
+                    'Connection': 'keep-alive'
                 }
                 
                 # Try HEAD request first
@@ -184,13 +172,13 @@ class SmartLinkProcessor:
                     ) as response:
                         final_url = str(response.url)
                         if final_url != current_url and len(final_url) > len(current_url):
-                            logger.info(f"HEAD unshorten successful: {current_url} -> {final_url}")
+                            logger.info(f"HEAD unshorten successful: {final_url}")
                             current_url = final_url
                             break
-                except Exception as e:
-                    logger.warning(f"HEAD request failed: {e}")
+                except:
+                    pass
                 
-                # Fallback to GET with limited read
+                # Fallback to GET
                 try:
                     async with session.get(
                         current_url,
@@ -200,13 +188,13 @@ class SmartLinkProcessor:
                     ) as response:
                         final_url = str(response.url)
                         if final_url != current_url and len(final_url) > len(current_url):
-                            logger.info(f"GET unshorten successful: {current_url} -> {final_url}")
+                            logger.info(f"GET unshorten successful: {final_url}")
                             current_url = final_url
                             break
-                except Exception as e:
-                    logger.warning(f"GET request failed: {e}")
+                except:
+                    pass
                 
-                await asyncio.sleep(1)  # Brief delay between attempts
+                await asyncio.sleep(1)
                 
             except Exception as e:
                 logger.warning(f"Unshorten attempt {attempt + 1} failed: {e}")
@@ -216,14 +204,13 @@ class SmartLinkProcessor:
     
     @staticmethod
     def clean_affiliate_url_aggressive(url: str) -> str:
-        """Enhanced affiliate cleaning for better URL consistency"""
+        """Clean affiliate parameters from URL"""
         try:
             parsed = urlparse(url)
             domain = parsed.netloc.lower()
             
-            # Amazon cleaning - more aggressive
+            # Amazon cleaning
             if 'amazon' in domain:
-                # Try to extract ASIN from various patterns
                 asin_patterns = [
                     r'/dp/([A-Z0-9]{10})(?:/|$|\?)',
                     r'/product/([A-Z0-9]{10})(?:/|$|\?)',
@@ -239,7 +226,7 @@ class SmartLinkProcessor:
                         asin = match.group(1)
                         return f"https://www.amazon.in/dp/{asin}"
                 
-                # Fallback: clean query parameters
+                # Fallback clean
                 query_params = parse_qs(parsed.query)
                 essential_params = {}
                 for key, value in query_params.items():
@@ -249,9 +236,8 @@ class SmartLinkProcessor:
                 clean_query = urlencode(essential_params)
                 return urlunparse(parsed._replace(query=clean_query))
             
-            # Flipkart cleaning - enhanced
+            # Flipkart cleaning
             elif 'flipkart' in domain:
-                # Extract product ID more reliably
                 pid_patterns = [
                     r'/p/[^/]+/([^/?]+)',
                     r'pid=([A-Z0-9]+)',
@@ -265,7 +251,6 @@ class SmartLinkProcessor:
                         pid = match.group(1)
                         return f"https://www.flipkart.com/p/{pid}"
                 
-                # Keep only essential query params
                 query_params = parse_qs(parsed.query)
                 essential_params = {}
                 for key, value in query_params.items():
@@ -277,12 +262,10 @@ class SmartLinkProcessor:
             
             # Meesho cleaning
             elif 'meesho' in domain:
-                # Keep the path but remove all query parameters
                 return urlunparse(parsed._replace(query=''))
             
             # Myntra cleaning
             elif 'myntra' in domain:
-                # Extract product ID
                 product_match = re.search(r'/(\d+)', parsed.path)
                 if product_match:
                     product_id = product_match.group(1)
@@ -293,7 +276,7 @@ class SmartLinkProcessor:
             elif 'ajio' in domain:
                 return urlunparse(parsed._replace(query=''))
             
-            # Generic cleaning for other platforms
+            # Generic cleaning
             else:
                 query_params = parse_qs(parsed.query)
                 affiliate_keywords = [
@@ -317,11 +300,11 @@ class SmartLinkProcessor:
         return url
 
 class MessageParser:
-    """Enhanced message parsing for manual product info"""
+    """Parse manual product info from messages"""
     
     @staticmethod
     def extract_manual_info(message: str) -> Dict[str, Any]:
-        """Extract product info from manual message with improved accuracy"""
+        """Extract product info from message text"""
         info = {
             'title': '',
             'price': '',
@@ -331,7 +314,7 @@ class MessageParser:
             'pin': ''
         }
         
-        # Extract price with multiple patterns
+        # Extract price
         price_patterns = [
             r'@\s*(\d+)\s*rs',
             r'₹\s*(\d+(?:,\d+)*)',
@@ -346,29 +329,28 @@ class MessageParser:
                 price_str = match.group(1).replace(',', '')
                 try:
                     price_num = int(price_str)
-                    if 10 <= price_num <= 1000000:  # Reasonable price range
+                    if 10 <= price_num <= 1000000:
                         info['price'] = str(price_num)
                         break
                 except:
                     continue
         
-        # Extract PIN for Meesho (6-digit number)
+        # Extract PIN
         pin_pattern = r'\b([1-9]\d{5})\b'
         pin_matches = re.findall(pin_pattern, message)
         for pin in pin_matches:
-            # Validate PIN format (should start with 1-9)
             if pin[0] in '123456789':
                 info['pin'] = pin
                 break
         
-        # Extract brand with case-insensitive matching
+        # Extract brand
         message_lower = message.lower()
         for brand in KNOWN_BRANDS:
             if brand.lower() in message_lower:
                 info['brand'] = brand
                 break
         
-        # Extract gender with regex patterns
+        # Extract gender
         for gender, patterns in GENDER_KEYWORDS.items():
             for pattern in patterns:
                 if re.search(pattern, message, re.IGNORECASE):
@@ -377,7 +359,7 @@ class MessageParser:
             if info['gender']:
                 break
         
-        # Extract quantity with improved patterns
+        # Extract quantity
         for pattern in QUANTITY_PATTERNS:
             match = re.search(pattern, message, re.IGNORECASE)
             if match:
@@ -388,29 +370,25 @@ class MessageParser:
                 info['quantity'] = quantity.strip()
                 break
         
-        # Extract title (clean message text)
+        # Extract title
         title = message
-        # Remove URLs
         title = re.sub(r'https?://[^\s]+', '', title)
-        # Remove price mentions
         for pattern in price_patterns:
             title = re.sub(pattern, '', title, flags=re.IGNORECASE)
-        # Remove PIN
         title = re.sub(r'\b\d{6}\b', '', title)
-        # Clean whitespace
         title = ' '.join(title.split())
         
         if title and len(title) > 3:
-            info['title'] = title[:60].strip()  # Increased length limit
+            info['title'] = title[:60].strip()
         
         return info
 
 class ProductScraper:
-    """Enhanced product scraping with better error handling"""
+    """Product information scraper"""
     
     @staticmethod
     def detect_platform(url: str) -> str:
-        """Detect e-commerce platform from URL"""
+        """Detect platform from URL"""
         domain = urlparse(url).netloc.lower()
         
         if 'amazon' in domain:
@@ -430,10 +408,9 @@ class ProductScraper:
     
     @staticmethod
     async def scrape_with_fallback(url: str, session: aiohttp.ClientSession, manual_info: Dict = None) -> Dict[str, Any]:
-        """Enhanced scraping with better fallback mechanisms"""
+        """Scrape product info with fallbacks"""
         platform = ProductScraper.detect_platform(url)
         
-        # Initialize result
         result = {
             'title': '',
             'price': '',
@@ -446,16 +423,16 @@ class ProductScraper:
             'error': None
         }
         
-        # Apply manual info first (higher priority)
+        # Apply manual info first
         if manual_info:
             for key, value in manual_info.items():
                 if value:
                     result[key] = value
         
-        # Try scraping with multiple approaches
+        # Try scraping
         scraped_info = await ProductScraper._try_scraping_methods(url, session, platform)
         
-        # Merge scraped info (don't override manual info)
+        # Merge scraped info
         for key, value in scraped_info.items():
             if value and not result.get(key):
                 result[key] = value
@@ -463,7 +440,6 @@ class ProductScraper:
         # Validate result
         if not result.get('title') and not result.get('price'):
             result['error'] = 'Could not extract product information'
-            # Set fallback title if we have URL info
             if 'amazon' in url:
                 result['title'] = 'Amazon Product'
             elif 'flipkart' in url:
@@ -477,7 +453,7 @@ class ProductScraper:
     
     @staticmethod
     async def _try_scraping_methods(url: str, session: aiohttp.ClientSession, platform: str) -> Dict[str, Any]:
-        """Try multiple scraping approaches with enhanced reliability"""
+        """Try multiple scraping methods"""
         info = {
             'title': '',
             'price': '',
@@ -488,30 +464,22 @@ class ProductScraper:
             'pin': ''
         }
         
-        # Enhanced headers rotation
         headers_list = [
             {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none'
+                'Connection': 'keep-alive'
             },
             {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             }
         ]
         
         for i, headers in enumerate(headers_list):
             try:
-                logger.info(f"Scraping attempt {i+1} for {platform}: {url[:50]}...")
+                logger.info(f"Scraping attempt {i+1} for {platform}")
                 
                 async with session.get(
                     url, 
@@ -522,46 +490,39 @@ class ProductScraper:
                     if response.status == 200:
                         html = await response.text()
                         
-                        if len(html) > 1000:  # Ensure we got substantial content
+                        if len(html) > 1000:
                             extracted_info = ProductScraper._extract_from_html(html, platform, url)
                             
-                            # Merge extracted info
                             for key, value in extracted_info.items():
                                 if value and not info.get(key):
                                     info[key] = value
                             
-                            # If we got good data, break
                             if info.get('title') or info.get('price'):
                                 logger.info(f"Successfully extracted data on attempt {i+1}")
                                 break
                     else:
                         logger.warning(f"HTTP {response.status} for {url}")
                         
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout on scraping attempt {i+1}")
-                continue
             except Exception as e:
                 logger.warning(f"Scraping attempt {i+1} failed: {e}")
                 continue
             
-            # Brief delay between attempts
             await asyncio.sleep(1)
         
         return info
     
     @staticmethod
     def _extract_from_html(html: str, platform: str, url: str = '') -> Dict[str, Any]:
-        """Enhanced HTML extraction with better selectors and fallbacks"""
+        """Extract product info from HTML"""
         soup = BeautifulSoup(html, 'html.parser')
         info = {}
         
-        # Enhanced title extraction with platform-specific selectors
+        # Title extraction
         title_selectors = {
             'amazon': [
                 '#productTitle',
                 'h1.a-size-large.a-spacing-none.a-color-base',
                 'span#productTitle',
-                'h1[data-automation-id="product-title"]',
                 '.product-title',
                 'meta[property="og:title"]'
             ],
@@ -620,10 +581,10 @@ class ProductScraper:
                 
                 if info.get('title'):
                     break
-            except Exception as e:
+            except:
                 continue
         
-        # Enhanced price extraction with more patterns
+        # Price extraction
         price_patterns = [
             r'[₹]\s*(\d+(?:,\d+)*)',
             r'"price"[:\s]*"?(\d+(?:,\d+)*)',
@@ -634,7 +595,7 @@ class ProductScraper:
             r'current[_\s]*price["\s]*[:=]\s*["\s]*(\d+(?:,\d+)*)'
         ]
         
-        # Also check specific price selectors
+        # Try selector-based extraction first
         price_selectors = {
             'amazon': ['.a-price-whole', '.a-price .a-offscreen', '.a-price-range'],
             'flipkart': ['._30jeq3', '._1_WHN1', '.CEmiEU'],
@@ -643,7 +604,6 @@ class ProductScraper:
             'ajio': ['.prod-price', '.price-current']
         }
         
-        # Try selector-based extraction first
         if platform in price_selectors:
             for selector in price_selectors[platform]:
                 try:
@@ -694,14 +654,14 @@ class ProductScraper:
             if sizes:
                 info['sizes'] = sorted(list(sizes))
             
-            # Extract PIN from URL or content
+            # Extract PIN
             pin_matches = re.findall(r'\b([1-9]\d{5})\b', html)
             for pin in pin_matches[:3]:
                 if pin.startswith(tuple('123456789')):
                     info['pin'] = pin
                     break
         
-        # Extract brand from title or content
+        # Extract brand from title
         if info.get('title'):
             title_lower = info['title'].lower()
             for brand in KNOWN_BRANDS:
@@ -735,21 +695,29 @@ class ProductScraper:
     
     @staticmethod
     def _clean_title(title: str) -> str:
-        """Enhanced title cleaning"""
+        """Clean title text"""
         if not title:
             return ''
         
-        # Remove common noise words and patterns
+        # Remove platform-specific noise
         noise_patterns = [
-            r'\s*-\s*Amazon\.in.*,
-            r'\s*:\s*Amazon\.in.*,
-            r'\s*\|\s*Flipkart\.com.*,
-            r'\s*-\s*Buy.*,
-            r'\s*\|\s*Buy.*,
-            r'Buy\s+.*?online.*?at.*?price.*?,
-            r'Shop\s+.*?online.*?,
-            r'\s*\|\s*Myntra.*,
-            r'\s*-\s*Meesho.*
+            r'\s*-\s*Amazon\.in.*$',
+            r'\s*:\s*Amazon\.in.*$',
+            r'\s*\|\s*Flipkart\.com.*$',
+            r'\s*-\s*Buy.*$',
+            r'\s*\|\s*Buy.*$',
+            r'Buy\s+.*?online.*?at.*?price.*?$',
+            r'Shop\s+.*?online.*?$',
+            r'\s*\|\s*Myntra.*$',
+            r'\s*-\s*Meesho.*$',
+            r'\s*\|\s*.*\.com.*$',
+            r'\s*-\s*.*\.in.*$',
+            r'MRP.*?₹.*?\d+',
+            r'Price.*?₹.*?\d+',
+            r'₹\d+.*?off',
+            r'\d+%.*?off',
+            r'discount.*?\d+',
+            r'save.*?₹.*?\d+'
         ]
         
         clean_title = title
@@ -759,7 +727,7 @@ class ProductScraper:
         # Remove extra whitespace and clean up
         clean_title = ' '.join(clean_title.split())
         
-        # Remove common promotional and price words
+        # Remove promotional and price words
         promo_words = [
             'offer', 'deal', 'sale', 'discount', 'exclusive', 'limited', 'special',
             'mrp', 'price', 'rs', 'rupees', 'off', 'save', 'best', 'lowest',
@@ -778,7 +746,7 @@ class ProductScraper:
         
         clean_title = ' '.join(filtered_words)
         
-        # Limit length smartly (break at word boundary)
+        # Limit length smartly
         if len(clean_title) > 60:
             clean_title = clean_title[:60]
             if ' ' in clean_title:
@@ -787,39 +755,38 @@ class ProductScraper:
         return clean_title.strip()
 
 class DealFormatter:
-    """Enhanced deal formatter with strict format compliance"""
+    """Format deals according to specifications"""
     
     @staticmethod
     def format_deal(product_info: Dict[str, Any], clean_url: str, platform: str = '') -> str:
-        """Format product information with strict adherence to deal structure"""
+        """Format product info into deal structure"""
         
-        # Detect platform if not provided
         if not platform:
             platform = ProductScraper.detect_platform(clean_url)
         
-        # Build the first line components in exact order
+        # Build first line components
         line_components = []
         
-        # 1. Brand (if available and not already in title)
+        # Brand (if available and not in title)
         brand = product_info.get('brand', '').strip()
         title = product_info.get('title', '').strip()
         
         if brand and brand.lower() not in title.lower():
             line_components.append(brand)
         
-        # 2. Gender (if available)
+        # Gender
         gender = product_info.get('gender', '').strip()
         if gender:
             line_components.append(gender)
         
-        # 3. Quantity (if available)
+        # Quantity
         quantity = product_info.get('quantity', '').strip()
         if quantity:
             line_components.append(quantity)
         
-        # 4. Title (mandatory, cleaned)
+        # Title (cleaned)
         if title:
-            # Remove brand from title if we already added it separately
+            # Remove brand from title if already added
             if brand and brand.lower() in title.lower():
                 title_words = title.split()
                 filtered_words = []
@@ -847,27 +814,27 @@ class DealFormatter:
         else:
             line_components.append('Product Deal')
         
-        # 5. Price (if available, in exact format)
+        # Price
         price = product_info.get('price', '').strip()
         if price:
             line_components.append(f"@{price} rs")
         
-        # Build the message
+        # Build message
         lines = []
         
-        # First line: All components joined with spaces
+        # First line: all components
         first_line = ' '.join(line_components)
         lines.append(first_line)
         
-        # Second line: Clean URL (mandatory)
+        # Second line: clean URL
         lines.append(clean_url)
         
-        # Third line: Empty (mandatory)
+        # Third line: empty
         lines.append('')
         
-        # Platform-specific additional information
+        # Meesho-specific info
         if platform == 'meesho' or 'meesho' in clean_url.lower():
-            # Size information for Meesho
+            # Size info
             sizes = product_info.get('sizes', [])
             if sizes:
                 if len(sizes) >= 5:
@@ -875,22 +842,22 @@ class DealFormatter:
                 else:
                     lines.append(f"Size - {', '.join(sizes)}")
             else:
-                lines.append('Size - All')  # Default for Meesho
+                lines.append('Size - All')
             
-            # PIN information for Meesho
-            pin = product_info.get('pin', '110001')  # Default PIN
+            # PIN info
+            pin = product_info.get('pin', '110001')
             lines.append(f"Pin - {pin}")
             
-            # Empty line before channel tag
+            # Empty line
             lines.append('')
         
-        # Final line: Channel tag (mandatory)
+        # Channel tag
         lines.append('@reviewcheckk')
         
         return '\n'.join(lines)
 
 class DealBot:
-    """Enhanced bot with improved error handling and reliability"""
+    """Main bot class"""
     
     def __init__(self):
         self.session = None
@@ -898,13 +865,13 @@ class DealBot:
         self.processing_lock = asyncio.Lock()
     
     async def initialize(self):
-        """Initialize aiohttp session with better configuration"""
+        """Initialize session"""
         if not self.session:
             connector = aiohttp.TCPConnector(
                 limit=30,
                 limit_per_host=10,
                 ttl_dns_cache=300,
-                use_dns_cache=True,
+                use_dns_cache=True
             )
             timeout = aiohttp.ClientTimeout(total=30, connect=10)
             self.session = aiohttp.ClientSession(
@@ -914,13 +881,13 @@ class DealBot:
             )
     
     async def cleanup(self):
-        """Enhanced cleanup"""
+        """Cleanup resources"""
         if self.session:
             await self.session.close()
             self.session = None
     
     async def process_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced message processing with better error handling"""
+        """Process incoming messages"""
         async with self.processing_lock:
             try:
                 message = update.message or update.channel_post
@@ -934,7 +901,7 @@ class DealBot:
                 
                 self.processed_messages.add(message_id)
                 
-                # Keep memory usage reasonable
+                # Memory management
                 if len(self.processed_messages) > 200:
                     old_messages = list(self.processed_messages)[:100]
                     for old_msg in old_messages:
@@ -942,21 +909,21 @@ class DealBot:
                 
                 await self.initialize()
                 
-                # Extract text from message or caption
+                # Extract text
                 text = message.text or message.caption or ''
                 if not text or len(text.strip()) < 5:
                     return
                 
                 logger.info(f"Processing message: {text[:100]}...")
                 
-                # Extract all links with enhanced detection
+                # Extract links
                 links = SmartLinkProcessor.extract_all_links(text)
                 
                 if not links:
-                    logger.info("No links found in message")
+                    logger.info("No links found")
                     return
                 
-                logger.info(f"Found {len(links)} links to process")
+                logger.info(f"Found {len(links)} links")
                 
                 # Process each link
                 results = []
@@ -964,48 +931,47 @@ class DealBot:
                     try:
                         logger.info(f"Processing link {i+1}/{len(links)}: {url}")
                         
-                        # Check if URL is shortened and unshorten it
+                        # Unshorten if needed
                         if SmartLinkProcessor.is_shortened_url(url):
                             logger.info(f"Unshortening URL: {url}")
                             url = await SmartLinkProcessor.unshorten_url_aggressive(url, self.session)
                             logger.info(f"Unshortened to: {url}")
                         
-                        # Clean affiliate parameters
+                        # Clean URL
                         clean_url = SmartLinkProcessor.clean_affiliate_url_aggressive(url)
                         logger.info(f"Cleaned URL: {clean_url}")
                         
-                        # Extract manual information from message text
+                        # Extract manual info
                         manual_info = MessageParser.extract_manual_info(text)
-                        logger.info(f"Manual info extracted: {manual_info}")
+                        logger.info(f"Manual info: {manual_info}")
                         
-                        # Scrape product information
+                        # Scrape product info
                         product_info = await ProductScraper.scrape_with_fallback(
                             clean_url, 
                             self.session, 
                             manual_info
                         )
-                        logger.info(f"Product info scraped: {product_info}")
+                        logger.info(f"Product info: {product_info}")
                         
                         # Detect platform
                         platform = ProductScraper.detect_platform(clean_url)
                         
-                        # Format the deal message
+                        # Format message
                         formatted_message = DealFormatter.format_deal(product_info, clean_url, platform)
                         
                         results.append(formatted_message)
                         
-                        # Brief delay between processing multiple links
+                        # Brief delay
                         if len(links) > 1 and i < len(links) - 1:
                             await asyncio.sleep(1)
                         
                     except Exception as e:
-                        logger.error(f"Error processing link {url}: {str(e)}", exc_info=True)
-                        # Create error message in proper format
+                        logger.error(f"Error processing link {url}: {str(e)}")
                         error_msg = f"Product Deal\n{url}\n\n@reviewcheckk"
                         results.append(error_msg)
                         continue
                 
-                # Send all results
+                # Send results
                 for result in results:
                     try:
                         await safe_send_message(
@@ -1015,7 +981,6 @@ class DealBot:
                             disable_web_page_preview=True
                         )
                         
-                        # Small delay between messages
                         if len(results) > 1:
                             await asyncio.sleep(0.5)
                     except Exception as e:
@@ -1023,8 +988,7 @@ class DealBot:
                         continue
                         
             except Exception as e:
-                logger.error(f"Error in process_message: {str(e)}", exc_info=True)
-                # Send generic error message
+                logger.error(f"Error in process_message: {str(e)}")
                 try:
                     error_msg = "❌ Error processing message\n\n@reviewcheckk"
                     await safe_send_message(update, context, error_msg)
@@ -1032,7 +996,7 @@ class DealBot:
                     pass
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced start command"""
+    """Handle start command"""
     msg = (
         "🤖 *Deal Bot v2.0 Active!*\n\n"
         "✅ Smart link detection & processing\n"
@@ -1051,10 +1015,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_send_message(update, context, msg, parse_mode=ParseMode.MARKDOWN)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced error handler"""
-    logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
+    """Handle errors"""
+    logger.error(f"Update {update} caused error {context.error}")
     
-    # Try to send error message to user
     try:
         if update and update.effective_chat:
             await safe_send_message(
@@ -1066,13 +1029,13 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
-    """Enhanced safe message sending with better error handling"""
+    """Safe message sending"""
     if not update or not update.effective_chat:
-        logger.error("Invalid update or chat for sending message")
+        logger.error("Invalid update or chat")
         return
     
     try:
-        # Ensure text is not too long
+        # Ensure text length limit
         if len(text) > 4096:
             text = text[:4090] + "..."
         
@@ -1086,7 +1049,6 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
         
-        # Try sending a simple fallback message
         try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -1096,11 +1058,11 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             logger.error(f"Failed to send fallback message: {e2}")
 
 def main():
-    """Enhanced main function with better error handling"""
+    """Main function"""
     print("🚀 Starting Deal Bot v2.0...")
     
     try:
-        # Create application with enhanced configuration
+        # Create application
         application = (
             Application.builder()
             .token(BOT_TOKEN)
@@ -1111,7 +1073,7 @@ def main():
             .build()
         )
         
-        # Initialize bot handler
+        # Initialize bot
         bot = DealBot()
         
         # Add handlers
@@ -1124,7 +1086,7 @@ def main():
         # Add error handler
         application.add_error_handler(error_handler)
         
-        # Setup cleanup on shutdown
+        # Setup cleanup
         import signal
         import sys
         
@@ -1137,12 +1099,12 @@ def main():
         signal.signal(signal.SIGTERM, signal_handler)
         
         # Start bot
-        print(f"✅ Bot @{BOT_USERNAME} is now running...")
+        print(f"✅ Bot @{BOT_USERNAME} is running...")
         print("📡 Monitoring all channels, groups, and DMs")
         print("🔗 Processing product links with enhanced accuracy")
         print("📝 Strict deal format compliance enabled")
         
-        # Run the bot
+        # Run bot
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
@@ -1150,7 +1112,7 @@ def main():
         
     except Exception as e:
         print(f"❌ Failed to start bot: {e}")
-        logger.error(f"Bot startup failed: {e}", exc_info=True)
+        logger.error(f"Bot startup failed: {e}")
 
 if __name__ == '__main__':
     main()
