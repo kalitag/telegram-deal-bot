@@ -740,20 +740,107 @@ class ProductScraper:
             # ✅ Add this line to define the promotional words you want to skip.
 promo_words = {"deal", "offer", "sale", "special", "discount", "free", "limited", "new"}
 
-title = "🔥 Special deal: Get 50% OFF! Was ₹2000, now ₹1000. Limited time offer!"
-words = title.split()
-filtered_words = []
+# ===== Helper Functions =====
+def clean_title(raw_title: str) -> str:
+    """
+    Cleans product titles by removing platform-specific noise, promo words, repeated words,
+    and unnecessary symbols. Ensures brand and essential details remain.
+    """
+    noise_words = {
+        "deal", "offer", "sale", "special", "discount", "free", "limited", "new",
+        "buy", "shop", "trending", "exclusive", "best price", "hot"
+    }
+    # Lowercase comparison for cleaning but keep original case for display
+    title_words = raw_title.split()
+    cleaned_words = []
+    for word in title_words:
+        if word.lower() not in noise_words and not re.match(r'^\W+$', word):
+            cleaned_words.append(word)
+    # Remove duplicates while preserving order
+    seen = set()
+    final_words = [w for w in cleaned_words if not (w.lower() in seen or seen.add(w.lower()))]
+    return " ".join(final_words).strip()
 
-for word in words:
-    # Skip promotional words and price-related terms
-    if (word.lower() not in promo_words and
-            not re.match(r'₹\d+', word) and
-            not re.match(r'\d+%', word) and
-            not re.match(r'rs\.?\d+', word, re.IGNORECASE)):
-        filtered_words.append(word)
-        
-clean_title = ' '.join(filtered_words)
-print(clean_title)
+def extract_price(text: str) -> str:
+    """
+    Extracts the actual selling price from a string, ignoring MRP/discount info.
+    """
+    matches = re.findall(r'₹\s?(\d+)', text)
+    if matches:
+        prices = sorted(set(int(p) for p in matches))
+        return f"₹{prices[0]}" if prices else ""
+    return ""
+
+def detect_brand_gender_qty(title: str) -> dict:
+    """
+    Detects brand, gender, and quantity from product title.
+    """
+    brand_match = re.search(r'by\s+([A-Za-z0-9]+)', title, re.IGNORECASE)
+    gender = "Unisex"
+    if re.search(r'\bmen\b', title, re.IGNORECASE):
+        gender = "Men"
+    elif re.search(r'\bwomen\b', title, re.IGNORECASE):
+        gender = "Women"
+
+    qty_match = re.search(r'(\d+)\s?(pcs|pieces|pack)', title, re.IGNORECASE)
+    return {
+        "brand": brand_match.group(1) if brand_match else "",
+        "gender": gender,
+        "quantity": qty_match.group(0) if qty_match else ""
+    }
+
+def unshorten_url(url: str) -> str:
+    """
+    Expands shortened URLs to their final destination.
+    """
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=5)
+        return r.url
+    except requests.RequestException:
+        return url
+
+def extract_text_from_image(image_path: str) -> str:
+    """
+    Uses OCR to extract text from an image.
+    """
+    try:
+        img = Image.open(image_path)
+        return pytesseract.image_to_string(img)
+    except Exception:
+        return ""
+
+# ===== Processing Items =====
+async def process_item(item):
+    promo_words = {"deal", "offer", "sale", "special", "discount", "free", "limited", "new"}
+
+    title = clean_title(item.get("title", ""))
+    price = extract_price(item.get("price_info", ""))
+    meta = detect_brand_gender_qty(title)
+
+    # Meesho-specific additions
+    if "meesho.com" in item.get("url", "").lower():
+        if "size" in item:
+            title += f" | Size: {item['size']}"
+        if "pin" in item:
+            title += f" | PIN: {item['pin']}"
+
+    return {
+        "title": title,
+        "price": price,
+        "brand": meta["brand"],
+        "gender": meta["gender"],
+        "quantity": meta["quantity"],
+        "url": unshorten_url(item.get("url", ""))
+    }
+
+# ===== Example Usage =====
+# Assuming 'items' is a list of dictionaries with keys: title, price_info, url, size, pin
+async def process_all_items(items):
+    results = []
+    for item in items:
+        result = await process_item(item)
+        results.append(result)
+    return results
         
         # Limit length smartly
         if len(clean_title) > 60:
