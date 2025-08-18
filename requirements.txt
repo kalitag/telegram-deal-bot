@@ -1,7 +1,11 @@
+# Core Dependencies
 python-telegram-bot==20.7
-aiohttp==3.9.1
-beautifulsoup4==4.12.2
-lxml==4.9.3
-pillow==10.2.0
-pytesseract==0.3.10
+aiohttp==3.9.5
+beautifulsoup4==4.12.3
 requests==2.31.0
+
+# Optional: For better performance (if needed)
+lxml==4.9.4
+
+# Logging and utilities
+logging==0.4.2
