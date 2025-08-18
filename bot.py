@@ -1,112 +1,383 @@
+import asyncio
 import logging
 import re
-import asyncio
-import aiohttp
-from typing import Optional, Dict, List, Any
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
-from telegram.constants import ParseMode
+from typing import List, Dict, Optional
+from urllib.parse import urlparse, urlunparse
+from functools import wraps
 
-# Configure logging
+# External Libraries (Lightweight)
+import requests
+from bs4 import BeautifulSoup
+import aiohttp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+
+# Setup Logging
 logging.basicConfig(
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-# Bot Configuration
-BOT_TOKEN = "8465346144:AAGSHC77UkXVZZTUscbYItvJxgQbBxmFcWo"
-BOT_USERNAME = "@tg_workbot"
+# Constants
+DEFAULT_PIN = "110001"
+ADVANCED_MODE = False
+REVIEWCHECKK_TAG = "@reviewcheckk"
 
-# URL shorteners list
-SHORTENERS = [
-    'cutt.ly', 'spoo.me', 'amzn.to', 'amzn-to.co', 'fkrt.cc', 'bitli.in', 
-    'da.gd', 'wishlink.com', 'bit.ly', 'tinyurl.com', 'short.link', 
-    'ow.ly', 'is.gd', 't.co', 'goo.gl', 'rb.gy', 'tiny.cc', 'v.gd',
-    'x.co', 'buff.ly', 'short.gy', 'shorte.st', 'adf.ly', 'bc.vc',
-    'tinycc.com', 'shorturl.at', 'clck.ru', '0rz.tw', '1link.in'
-]
+# Store user states
+user_states = {}
 
-# Gender detection patterns
-GENDER_KEYWORDS = {
-    'Men': [
-        r'\bmen\b', r"\bmen's\b", r'\bmale\b', r'\bboy\b', r'\bboys\b', 
-        r'\bgents\b', r'\bgentleman\b', r'\bmasculine\b', r'\bmans\b', 
-        r'\bguys\b', r'\bhim\b', r'\bhis\b', r'\bfather\b', r'\bdad\b'
-    ],
-    'Women': [
-        r'\bwomen\b', r"\bwomen's\b", r'\bfemale\b', r'\bgirl\b', r'\bgirls\b', 
-        r'\bladies\b', r'\blady\b', r'\bfeminine\b', r'\bwomens\b', 
-        r'\bher\b', r'\bshe\b', r'\bmother\b', r'\bmom\b'
-    ],
-    'Kids': [
-        r'\bkids\b', r'\bchildren\b', r'\bchild\b', r'\bbaby\b', r'\binfant\b', 
-        r'\btoddler\b', r'\bteen\b', r'\bteenage\b', r'\bjunior\b', r'\byouth\b'
-    ]
-}
+# ----------------------------
+# Utility Functions
+# ----------------------------
 
-# Quantity patterns
-QUANTITY_PATTERNS = [
-    r'pack\s+of\s+(\d+)',
-    r'(\d+)\s*pack',
-    r'set\s+of\s+(\d+)',
-    r'(\d+)\s*pcs?',
-    r'(\d+)\s*pieces?',
-    r'(\d+)\s*kg',
-    r'(\d+)\s*g(?:ram)?s?',
-    r'(\d+)\s*ml',
-    r'(\d+)\s*l(?:itr?e)?s?',
-    r'combo\s+(\d+)',
-    r'(\d+)\s*pair',
-    r'multipack\s+(\d+)',
-    r'quantity\s*:\s*(\d+)'
-]
+def safe_async(func):
+    """Decorator to wrap async functions with exception handling."""
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error in {func.__name__}: {e}")
+            return None
+    return wrapper
 
-# Known brands
-KNOWN_BRANDS = [
-    'Lakme', 'Maybelline', 'L\'Oreal', 'MAC', 'Revlon', 'Nykaa', 'Colorbar',
-    'Nike', 'Adidas', 'Puma', 'Reebok', 'Converse', 'Vans',
-    'Samsung', 'Apple', 'OnePlus', 'Xiaomi', 'Realme', 'Oppo', 'Vivo',
-    'Zara', 'H&M', 'Forever21', 'Mango', 'Uniqlo',
-    'Mamaearth', 'Wow', 'Biotique', 'Himalaya', 'Patanjali',
-    'Jockey', 'Calvin Klein', 'Tommy Hilfiger', 'Allen Solly'
-]
+async def unshorten_url(url: str) -> str:
+    """Unshortens a given URL using HTTP HEAD request."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url, allow_redirects=True, timeout=10) as response:
+                return str(response.url)
+    except Exception as e:
+        logger.error(f"Failed to unshorten URL: {url} - {e}")
+        return url
 
-class SmartLinkProcessor:
-    """Smart link detection and processing"""
-    
-    @staticmethod
-    def extract_all_links(text: str) -> List[str]:
-        """Extract all URLs from text"""
-        if not text:
-            return []
-        
-        urls = []
-        
-        # Standard HTTP/HTTPS URLs
-        standard_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+(?=[.\s]|$)'
-        urls.extend(re.findall(standard_pattern, text, re.IGNORECASE))
-        
-        # URLs with www
-        www_pattern = r'www\.[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s<>"{}|\\^`\[\]]*)?'
-        potential_urls = re.findall(www_pattern, text)
-        for url in potential_urls:
-            if not url.startswith('http'):
-                url = 'https://' + url
-            urls.append(url)
-        
-        # Platform-specific domains
-        domain_patterns = [
-            r'(?:amazon\.in|amazon\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:flipkart\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:meesho\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:myntra\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:ajio\.com)/[^\s<>"{}|\\^`\[\]]+',
-            r'(?:snapdeal\.com)/[^\s<>"{}|\\^`\[\]]+'
+def remove_duplicate_words(text: str) -> str:
+    """Remove repeated words from a string."""
+    words = text.split()
+    seen = set()
+    result = []
+    for word in words:
+        if word.lower() not in seen:
+            seen.add(word.lower())
+            result.append(word)
+    return ' '.join(result)
+
+def extract_domain(url: str) -> str:
+    """Extract domain from URL."""
+    parsed = urlparse(url)
+    return parsed.netloc
+
+def is_clothing_product(title: str) -> bool:
+    """Detect if a product is clothing based on keywords."""
+    clothing_keywords = ["shirt", "t-shirt", "jeans", "dress", "skirt", "top", "pants", "jacket"]
+    return any(keyword in title.lower() for keyword in clothing_keywords)
+
+# ----------------------------
+# Parsing Logic
+# ----------------------------
+
+@safe_async
+async def parse_amazon(url: str) -> Optional[Dict]:
+    """Parse Amazon product details."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                content = await resp.text()
+                soup = BeautifulSoup(content, 'html.parser')
+
+                # Extract title
+                title_elem = soup.find('span', {'id': 'productTitle'})
+                title = title_elem.get_text(strip=True) if title_elem else "Unknown Product"
+
+                # Extract price
+                price_elem = soup.find('span', {'class': 'a-price-whole'})
+                price = price_elem.get_text(strip=True) if price_elem else "N/A"
+
+                # Extract image
+                img_elem = soup.find('img', {'id': 'landingImage'})
+                image_url = img_elem.get('src') if img_elem else None
+
+                # Extract sizes
+                size_elem = soup.find('select', {'id': 'native_dropdown_selected_size_name'})
+                sizes = []
+                if size_elem:
+                    options = size_elem.find_all('option')
+                    sizes = [opt.get_text(strip=True) for opt in options if opt.get('value') != '']
+
+                return {
+                    "title": f"Amazon {title}",
+                    "price": price,
+                    "image": image_url,
+                    "sizes": sizes if sizes else ["Size – All"],
+                    "link": url
+                }
+    except Exception as e:
+        logger.error(f"Error parsing Amazon: {e}")
+        return None
+
+@safe_async
+async def parse_flipkart(url: str) -> Optional[Dict]:
+    """Parse Flipkart product details."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                content = await resp.text()
+                soup = BeautifulSoup(content, 'html.parser')
+
+                # Extract title
+                title_elem = soup.find('span', {'class': '_35KyD6'})
+                title = title_elem.get_text(strip=True) if title_elem else "Unknown Product"
+
+                # Extract price
+                price_elem = soup.find('div', {'class': '_1vC4OE _3qQ9m1'})
+                price = price_elem.get_text(strip=True) if price_elem else "N/A"
+
+                # Extract image
+                img_elem = soup.find('img', {'class': '_396cs4'})
+                image_url = img_elem.get('src') if img_elem else None
+
+                # Extract sizes
+                sizes = []
+                size_elements = soup.find_all('li', {'class': '_2MImiq'})
+                sizes = [elem.get_text(strip=True) for elem in size_elements]
+
+                return {
+                    "title": f"Flipkart {title}",
+                    "price": price,
+                    "image": image_url,
+                    "sizes": sizes if sizes else ["Size – All"],
+                    "link": url
+                }
+    except Exception as e:
+        logger.error(f"Error parsing Flipkart: {e}")
+        return None
+
+@safe_async
+async def parse_meesho(url: str) -> Optional[Dict]:
+    """Parse Meesho product details."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                content = await resp.text()
+                soup = BeautifulSoup(content, 'html.parser')
+
+                # Extract title
+                title_elem = soup.find('h1', {'class': 'product-title'})
+                title = title_elem.get_text(strip=True) if title_elem else "Unknown Product"
+
+                # Extract price
+                price_elem = soup.find('div', {'class': 'price'})
+                price = price_elem.get_text(strip=True) if price_elem else "N/A"
+
+                # Extract image
+                img_elem = soup.find('img', {'class': 'product-image'})
+                image_url = img_elem.get('src') if img_elem else None
+
+                # Extract sizes
+                sizes = []
+                size_elements = soup.find_all('button', {'class': 'size-button'})
+                sizes = [elem.get_text(strip=True) for elem in size_elements]
+
+                # Get pincode
+                pincode = DEFAULT_PIN
+                pin_input = soup.find('input', {'placeholder': 'Enter Pincode'})
+                if pin_input and pin_input.get('value'):
+                    pincode = pin_input['value']
+
+                # Format title
+                formatted_title = f"{pincode} {title} @{price} rs"
+                return {
+                    "title": formatted_title,
+                    "price": price,
+                    "image": image_url,
+                    "sizes": sizes if sizes else ["Size – All"],
+                    "link": url
+                }
+    except Exception as e:
+        logger.error(f"Error parsing Meesho: {e}")
+        return None
+
+@safe_async
+async def parse_generic(url: str) -> Optional[Dict]:
+    """Fallback parser for other stores."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                content = await resp.text()
+                soup = BeautifulSoup(content, 'html.parser')
+
+                # Try to find title
+                title_elem = soup.find('title')
+                title = title_elem.get_text(strip=True) if title_elem else "Unknown Product"
+
+                # Try to find price
+                price_elem = soup.find(['span', 'div'], text=re.compile(r'₹|Rs\.?'))
+                price = price_elem.get_text(strip=True) if price_elem else "N/A"
+
+                # Try to find image
+                img_elem = soup.find('img')
+                image_url = img_elem.get('src') if img_elem else None
+
+                return {
+                    "title": f"Generic {title}",
+                    "price": price,
+                    "image": image_url,
+                    "sizes": ["Size – All"],
+                    "link": url
+                }
+    except Exception as e:
+        logger.error(f"Error parsing generic site: {e}")
+        return None
+
+# ----------------------------
+# Main Handler Functions
+# ----------------------------
+
+async def handle_link(url: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle a single product link."""
+    try:
+        # Unshorten URL
+        unshortened_url = await unshorten_url(url)
+        domain = extract_domain(unshortened_url)
+
+        # Select parser based on domain
+        if "amazon" in domain:
+            data = await parse_amazon(unshortened_url)
+        elif "flipkart" in domain:
+            data = await parse_flipkart(unshortened_url)
+        elif "meesho" in domain:
+            data = await parse_meesho(unshortened_url)
+        else:
+            data = await parse_generic(unshortened_url)
+
+        if not 
+            await context.bot.send_message(chat_id=context.effective_chat.id, text="❌ Failed to process link.")
+            return
+
+        # Format output
+        title = remove_duplicate_words(data["title"])
+        price = data["price"]
+        sizes = data["sizes"]
+        link = data["link"]
+
+        # Build message
+        message_parts = [
+            f"{title}",
+            f"Price: ₹{price}",
+            f"Sizes: {', '.join(sizes)}",
+            f"Link: {link}",
+            REVIEWCHECKK_TAG
         ]
-        
+        message = "\n".join(message_parts)
+
+        # Send image if available
+        if data["image"]:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(data["image"]) as resp:
+                        image_data = await resp.read()
+                        await context.bot.send_photo(
+                            chat_id=context.effective_chat.id,
+                            photo=image_data,
+                            caption=message
+                        )
+            except Exception as e:
+                logger.warning(f"Could not send image: {e}")
+                await context.bot.send_message(chat_id=context.effective_chat.id, text=message)
+        else:
+            await context.bot.send_message(chat_id=context.effective_chat.id, text=message)
+
+    except Exception as e:
+        logger.error(f"Error handling link: {e}")
+        await context.bot.send_message(chat_id=context.effective_chat.id, text="❌ Failed to process link.")
+
+async def process_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process multiple links in a single message."""
+    message_text = update.message.text
+    urls = re.findall(r'https?://[^\s]+', message_text)
+    
+    if not urls:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="No valid URLs found.")
+        return
+
+    for url in urls:
+        await handle_link(url, context)
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send welcome message."""
+    welcome_text = (
+        "🤖 Welcome to Affiliate Product Bot!\n\n"
+        "Send any product link (Amazon, Flipkart, Meesho, etc.) and I'll extract:\n"
+        "✅ Title\n✅ Price\n✅ Sizes\n✅ Full Link\n\n"
+        "Use /help for more info."
+    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_text)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send help message."""
+    help_text = (
+        "📖 Help & Rules:\n\n"
+        "🔹 Send any product link to get formatted deal.\n"
+        "🔹 Supports Amazon, Flipkart, Meesho, and more.\n"
+        "🔹 Out-of-stock detection.\n"
+        "🔹 Size listing.\n"
+        "🔹 Image support.\n"
+        "🔹 Clean formatting with @reviewcheckk tag.\n\n"
+        "Commands:\n"
+        "/start - Start bot\n"
+        "/help - Show this message\n"
+        "/advancing - Enable advanced features\n"
+        "/off_advancing - Disable advanced features"
+    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
+
+async def toggle_advanced_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, enable: bool) -> None:
+    """Toggle advanced mode."""
+    global ADVANCED_MODE
+    ADVANCED_MODE = enable
+    status = "enabled" if enable else "disabled"
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Advanced mode {status}.")
+
+# ----------------------------
+# Entry Point
+# ----------------------------
+
+def main():
+    """Start the bot."""
+    application = Application.builder().token("YOUR_BOT_TOKEN").build()
+
+    # Register handlers
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("advancing", lambda u, c: toggle_advanced_mode(u, c, True)))
+    application.add_handler(CommandHandler("off_advancing", lambda u, c: toggle_advanced_mode(u, c, False)))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_links))
+
+    # Run the bot
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()        
         for pattern in domain_patterns:
             found_urls = re.findall(pattern, text, re.IGNORECASE)
             for url in found_urls:
